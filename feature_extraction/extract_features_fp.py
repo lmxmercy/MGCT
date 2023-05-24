@@ -16,9 +16,9 @@ from torch.utils.data import DataLoader
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  
 # print(BASE_DIR)
 sys.path.append(BASE_DIR)
-from models.resnet import resnet50_baseline
-from models.ccl_resnet import resnet50
-from utils.util import collate_features
+from models.ResNet import resnet50_baseline
+# from models.ccl_resnet import resnet50
+from utils.utils import collate_features
 from utils.file_utils import save_hdf5
 from datasets.dataset_h5 import Dataset_All_Bags, Whole_Slide_Bag_FP
 
@@ -66,14 +66,14 @@ def compute_w_loader(file_path, output_path, wsi, model,
 
 
 parser = argparse.ArgumentParser(description='Feature Extraction')
-parser.add_argument('--data_h5_dir', type=str, default='/data/lmx/Dataset/TCGA-DATASET/RESULTS_DIRECTORY/tcga_luad')
-parser.add_argument('--data_slide_dir', type=str, default='/data/lmx/Dataset/TCGA-DATASET/DATA_DIRECTORY/tcga_luad')
+parser.add_argument('--data_h5_dir', type=str, default='/data/lmx/Dataset/TCGA-DATASET/20X_RESULTS_DIRECTORY/tcga_gbmlgg')
+parser.add_argument('--data_slide_dir', type=str, default='/data_new/lmx/Dataset/TCGA-DATASET/DATA_DIRECTORY/tcga_gbmlgg')
 parser.add_argument('--slide_ext', type=str, default= '.svs')
-parser.add_argument('--csv_path', type=str, default='/data/lmx/Dataset/TCGA-DATASET/RESULTS_DIRECTORY/tcga_luad/process_list_autogen.csv')
-parser.add_argument('--feat_dir', type=str, default='/data/lmx/Dataset/TCGA-DATASET/RetCCL_FEATURES/tcga_luad')
-parser.add_argument('--batch_size', type=int, default=1024)
+parser.add_argument('--csv_path', type=str, default='/data/lmx/Dataset/TCGA-DATASET/20X_RESULTS_DIRECTORY/tcga_gbmlgg/process_list_autogen.csv')
+parser.add_argument('--feat_dir', type=str, default='/data/lmx/Dataset/TCGA-DATASET/20X_FEATURES_DIRECTORY/tcga_gbmlgg')
+parser.add_argument('--batch_size', type=int, default=1408)
 parser.add_argument('--no_auto_skip', default=False, action='store_true')
-parser.add_argument('--custom_downsample', type=int, default=1)
+parser.add_argument('--custom_downsample', type=int, default=2)
 parser.add_argument('--target_patch_size', type=int, default=-1)
 args = parser.parse_args()
 
@@ -93,17 +93,17 @@ if __name__ == '__main__':
 	dest_files = os.listdir(os.path.join(args.feat_dir, 'pt_files'))
 
 	print('loading model checkpoint')
-	# model = resnet50_baseline(pretrained=True)
+	model = resnet50_baseline(pretrained=True)
 
-	model = resnet50(num_classes=1024, mlp=False, two_branch=False, normlinear=True)
-	state_dict = torch.load(r'/data/lmx/CMT/ckpt/RetCCL_resnet50.pth')
+	# model = resnet50(num_classes=1024, mlp=False, two_branch=False, normlinear=True)
+	# state_dict = torch.load(r'/data/lmx/CMT/ckpt/RetCCL_resnet50.pth')
 
-	for name, param in model.named_parameters():
-		if name not in ['fc.weight', 'fc.bias']:
-			param.requires_grad = False
-	# init the fc layer
-	model.fc.weight.data.normal_(mean=0.0, std=0.01)
-	model.fc.bias.data.zero_()
+	# for name, param in model.named_parameters():
+	# 	if name not in ['fc.weight', 'fc.bias']:
+	# 		param.requires_grad = False
+	# # init the fc layer
+	# model.fc.weight.data.normal_(mean=0.0, std=0.01)
+	# model.fc.bias.data.zero_()
 
 	model = model.to(device)
 	

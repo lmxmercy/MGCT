@@ -1,6 +1,7 @@
 import numpy as np
 import os
 import sys
+import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -10,34 +11,82 @@ sys.path.append(BASE_DIR)
 from models.model_utils import Attn_Net_Gated, BilinearFusion, SNN_Block, Reg_Block, LRBilinearFusion
 
 
+def init_max_weights(module):
+    for m in module.modules():
+        if type(m) == nn.Linear:
+            stdv = 1. / math.sqrt(m.weight.size(1))
+            m.weight.data.normal_(0, stdv)
+            m.bias.data.zero_()
+
+class MM_MLP_Surv(nn.Module):
+    def __init__(self, input_dim_g: int, input_dim_h: int, hidden_size_g: int, hidden_size_h: int, hidden_size_mm: int, dropout=0.25, n_classes=4):
+        super(MM_MLP_Surv, self).__init__()  # Inherited from the parent class nn.Module
+        self.fc_genomic = nn.Sequential(nn.Linear(input_dim_g, hidden_size_g), nn.ReLU(), nn.Dropout(p=dropout))
+        self.fc_histology = nn.Sequential(nn.Linear(input_dim_h, hidden_size_h), nn.ReLU(), nn.Dropout(p=dropout))
+        self.fc_mm = nn.Sequential(nn.Linear(hidden_size_g+hidden_size_h, hidden_size_mm), nn.ReLU(), nn.Dropout(p=dropout))
+        self.classifier_g = nn.Linear(hidden_size_g, n_classes)  # 2nd Full-Connected Layer: hidden node -> output
+        self.classifier_h = nn.Linear(hidden_size_h, n_classes)  # 2nd Full-Connected Layer: hidden node -> output
+        self.classifier = nn.Linear(hidden_size_mm, n_classes)  # 2nd Full-Connected Layer: hidden node -> output
+
+    def forward(self, **kwargs):
+        g_x = kwargs['x_path']
+        h_x = kwargs['x_omic']
+        g_features = self.fc_genomic(g_x)
+        h_features = self.fc_histology(h_x)
+        mm_features = self.fc_mm(torch.cat([g_features, h_features], dim=-1))
+        g_logits = self.classifier_g(g_features)
+        g_probs = torch.softmax(g_logits, dim=-1)
+        h_logits = self.classifier_h(h_features)
+        h_probs = torch.softmax(h_logits, dim=-1)
+
+        logits = self.classifier(mm_features)
+        Y_hat = torch.topk(logits, 1, dim=1)[1]
+        Y_prob = F.softmax(logits, dim=1)
+        hazards = torch.sigmoid(logits)
+        S = torch.cumprod(1 - hazards, dim=1)
+        risk = -torch.sum(S, dim=1)
+
+        return hazards, S, Y_hat, None, None
+
+    def relocate(self):
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+        if torch.cuda.device_count() > 1:
+            device_ids = list(range(torch.cuda.device_count()))
+            self.fc_genomic = nn.DataParallel(self.fc_genomic, device_ids=device_ids).to('cuda:0')
+            self.fc_histology = nn.DataParallel(self.fc_histology, device_ids=device_ids).to('cuda:0')
+            self.fc_mm = nn.DataParallel(self.fc_mm, device_ids=device_ids).to('cuda:0')
+        else:
+            self.fc_genomic = self.fc_genomic.to(device)
+            self.fc_histology = self.fc_histology.to(device)
+            self.fc_mm = self.fc_mm.to(device)
+
+        self.classifier_g = self.classifier_g.to(device)
+        self.classifier_h = self.classifier_h.to(device)
+        self.classifier = self.classifier.to(device)
+
+
 ###########################
 ### PORPOISE Implementation ###
 ###########################
 class PorpoiseMMF(nn.Module):
-    """
-    Info:
-        Pan-Cancer Integrative Histology-Genomic Analysis via Multimodal Deep Learning from Cancer Cell 2022
-        Paper: https://www.cell.com/cancer-cell/fulltext/S1535-6108(22)00317-8
-        Code: https://github.com/mahmoodlab/PORPOISE
-    Args:
-    """
-    def __init__(self,
-        omic_input_dim=2181,
-        path_input_dim=1024,
-        fusion_type='bilinear',
+    def __init__(self, 
+        omic_input_dim,
+        path_input_dim=1024, 
+        fusion='bilinear', 
         dropout=0.25,
-        n_classes=4,
-        scale_dim1=8,
-        scale_dim2=8,
-        gate_path=1,
-        gate_omic=1,
-        skip=True,
+        n_classes=4, 
+        scale_dim1=8, 
+        scale_dim2=8, 
+        gate_path=1, 
+        gate_omic=1, 
+        skip=True, 
         dropinput=0.10,
         use_mlp=False,
         size_arg = "small",
         ):
         super(PorpoiseMMF, self).__init__()
-        self.fusion_type = fusion_type
+        self.fusion = fusion
         self.size_dict_path = {"small": [path_input_dim, 512, 256], "big": [1024, 512, 384]}
         self.size_dict_omic = {'small': [256, 256]}
         self.n_classes = n_classes
@@ -54,23 +103,23 @@ class PorpoiseMMF(nn.Module):
         self.rho = nn.Sequential(*[nn.Linear(size[1], size[2]), nn.ReLU(), nn.Dropout(dropout)])
 
         ### Constructing Genomic SNN
-        if self.fusion_type is not None:
+        if self.fusion is not None:
             if use_mlp:
                 Block = Reg_Block
             else:
                 Block = SNN_Block
 
             hidden = self.size_dict_omic['small']
-            fc_omic = [Block(in_dim=omic_input_dim, out_dim=hidden[0])]
+            fc_omic = [Block(dim1=omic_input_dim, dim2=hidden[0])]
             for i, _ in enumerate(hidden[1:]):
-                fc_omic.append(Block(in_dim=hidden[i], out_dim=hidden[i+1], dropout=0.25))
+                fc_omic.append(Block(dim1=hidden[i], dim2=hidden[i+1], dropout=0.25))
             self.fc_omic = nn.Sequential(*fc_omic)
-
-            if self.fusion_type == 'concat':
+        
+            if self.fusion == 'concat':
                 self.mm = nn.Sequential(*[nn.Linear(256*2, size[2]), nn.ReLU(), nn.Linear(size[2], size[2]), nn.ReLU()])
-            elif self.fusion_type == 'bilinear':
+            elif self.fusion == 'bilinear':
                 self.mm = BilinearFusion(dim1=256, dim2=256, scale_dim1=scale_dim1, gate1=gate_path, scale_dim2=scale_dim2, gate2=gate_omic, skip=skip, mmhid=256)
-            elif self.fusion_type == 'lrb':
+            elif self.fusion == 'lrb':
                 self.mm = LRBilinearFusion(dim1=256, dim2=256, scale_dim1=scale_dim1, gate1=gate_path, scale_dim2=scale_dim2, gate2=gate_omic)
             else:
                 self.mm = None
@@ -84,59 +133,55 @@ class PorpoiseMMF(nn.Module):
             device_ids = list(range(torch.cuda.device_count()))
             self.attention_net = nn.DataParallel(self.attention_net, device_ids=device_ids).to('cuda:0')
 
-        if self.fusion_type is not None:
+        if self.fusion is not None:
             self.fc_omic = self.fc_omic.to(device)
             self.mm = self.mm.to(device)
 
         self.rho = self.rho.to(device)
         self.classifier_mm = self.classifier_mm.to(device)
 
-    def forward(self, wsi_feats, omic_feats):
-        x_path = wsi_feats
-        # print("Original WSI feature embedding size", x_path.shape)
-        A, h_path = self.attention_net(x_path)
+    def forward(self, **kwargs):
+        x_path = kwargs['x_path']
+        A, h_path = self.attention_net(x_path)  
         A = torch.transpose(A, 1, 0)
-        A_raw = A
-        A = F.softmax(A, dim=1)
+        A_raw = A 
+        A = F.softmax(A, dim=1) 
         h_path = torch.mm(A, h_path)
-        h_path = self.rho(h_path).squeeze(0)
+        h_path = self.rho(h_path)
 
-        x_omic = omic_feats
-        # print("Original Genomic feature embedding size", x_omic.shape)
-        h_omic = self.fc_omic(x_omic)
-        if self.fusion_type == 'bilinear':
+        x_omic = kwargs['x_omic']
+        h_omic = self.fc_omic(x_omic).unsqueeze(0)
+        if self.fusion == 'bilinear':
             h_mm = self.mm(h_path, h_omic)
-        elif self.fusion_type == 'concat':
-            # print(h_path.shape, h_omic.shape)
-            h_mm = self.mm(torch.cat([h_path, h_omic], axis=0))
-        elif self.fusion_type == 'lrb':
-            h_mm  = self.mm(h_path, h_omic) # logits needs to be a [1 x 4] vector
+        elif self.fusion == 'concat':
+            h_mm = self.mm(torch.cat([h_path, h_omic], axis=1))
+        elif self.fusion == 'lrb':
+            h_mm  = self.mm(h_path, h_omic) # logits needs to be a [1 x 4] vector 
             return h_mm
 
-        logits = self.classifier_mm(h_mm).unsqueeze(0) # logits needs to be a [B x 4] vector
-        # assert len(h_mm.shape) == 2 and h_mm.shape[1] == self.n_classes
-        # print(logits.shape)
-        Y_hat = torch.topk(logits, 1, dim=1)[1]
-        hazards = torch.sigmoid(logits)
-        S = torch.cumprod(1 - hazards, dim=1)
-        risk = -torch.sum(S, dim=1)
+        h_mm  = self.classifier_mm(h_mm) # logits needs to be a [B x 4] vector      
+        assert len(h_mm.shape) == 2 and h_mm.shape[1] == self.n_classes
 
-        return hazards, S, Y_hat
+        Y_hat = torch.topk(h_mm, 1, dim = 1)[1]
+        hazards = torch.sigmoid(h_mm)
+        S = torch.cumprod(1 - hazards, dim=1)
+
+        return hazards, S, Y_hat, None, None
 
     def captum(self, h, X):
-        A, h = self.attention_net(h)
+        A, h = self.attention_net(h)  
         A = A.squeeze(dim=2)
 
-        A = F.softmax(A, dim=1)
+        A = F.softmax(A, dim=1) 
         M = torch.bmm(A.unsqueeze(dim=1), h).squeeze(dim=1) #M = torch.mm(A, h)
         M = self.rho(M)
         O = self.fc_omic(X)
 
-        if self.fusion_type == 'bilinear':
+        if self.fusion == 'bilinear':
             MM = self.mm(M, O)
-        elif self.fusion_type == 'concat':
+        elif self.fusion == 'concat':
             MM = self.mm(torch.cat([M, O], axis=1))
-
+            
         logits  = self.classifier(MM)
         hazards = torch.sigmoid(logits)
         S = torch.cumprod(1 - hazards, dim=1)
@@ -278,6 +323,7 @@ class MCAT_Surv(nn.Module):
 
         risk = -torch.sum(S, dim=1)
         return risk
+
 
 ################################
 ### Deep Sets Implementation ###

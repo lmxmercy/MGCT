@@ -233,18 +233,20 @@ def seg_and_patch(source, save_dir, patch_save_dir, mask_save_dir, stitch_save_d
 
 parser = argparse.ArgumentParser(description='seg and patch')
 parser.add_argument('--source', type = str,
+		    		default='/data_new/lmx/Dataset/TCGA-DATASET/DATA_DIRECTORY/tcga_gbmlgg', 
 					help='path to folder containing raw wsi image files')
-parser.add_argument('--step_size', type = int, default=256,
+parser.add_argument('--step_size', type = int, default=512,
 					help='step_size')
-parser.add_argument('--patch_size', type = int, default=256,
+parser.add_argument('--patch_size', type = int, default=512,
 					help='patch_size')
-parser.add_argument('--patch', default=False, action='store_true')
-parser.add_argument('--seg', default=False, action='store_true')
-parser.add_argument('--stitch', default=False, action='store_true')
+parser.add_argument('--patch', default=True, action='store_true')
+parser.add_argument('--seg', default=True, action='store_true')
+parser.add_argument('--stitch', default=True, action='store_true')
 parser.add_argument('--no_auto_skip', default=True, action='store_false')
 parser.add_argument('--save_dir', type = str,
+		    		default='/data/lmx/Dataset/TCGA-DATASET/20X_RESULTS_DIRECTORY/tcga_gbmlgg',
 					help='directory to save processed data')
-parser.add_argument('--preset', default=None, type=str,
+parser.add_argument('--preset', default='/data/lmx/MCAT/presets/tcga.csv', type=str,
 					help='predefined profile of default segmentation and filter parameters (.csv)')
 parser.add_argument('--patch_level', type=int, default=0, 
 					help='downsample level at which to patch')

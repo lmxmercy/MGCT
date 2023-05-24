@@ -1,13 +1,16 @@
 from collections import OrderedDict
 from os.path import join
 import pdb
-
+import os
+import sys
 import numpy as np
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# print(BASE_DIR)
+sys.path.append(BASE_DIR)
 from models.model_utils import *
 
 
@@ -36,7 +39,8 @@ class MaskedOmics(nn.Module):
 
         #---> mask_1
         # df = [genes, pathways]
-        self.num_genomics = self.df_comp.shape[1]
+        self.num_genomics = self.df_comp
+        # self.num_genomics = self.df_comp.shape[1]
         M_raw = torch.Tensor(self.df_comp.values)
         self.mask_1 = torch.repeat_interleave(M_raw, self.dim_per_path_1, dim=1)
 
@@ -80,8 +84,11 @@ class MaskedOmics(nn.Module):
         out = torch.matmul(out, self.fc_2_weight * self.mask_2) + self.fc_2_bias
 
         #---> get logits
-        logits = self.to_logits(out)
-        return logits
+        logits = self.to_logits(out).unsqueeze(0)
+        Y_hat = torch.topk(logits, 1, dim=1)[1]
+        hazards = torch.sigmoid(logits)
+        S = torch.cumprod(1 - hazards, dim=1)
+        return hazards, S, Y_hat, None, None
     
 
 ##########################
@@ -119,8 +126,12 @@ class MLPOmics(nn.Module):
         data = self.net(data_omics) #[B, n]
 
         #---->predict
-        logits = self.to_logits(data) #[B, n_classes]
-        return logits
+        # logits = self.to_logits(data) #[B, n_classes]
+        logits = self.to_logits(data).unsqueeze(0)
+        Y_hat = torch.topk(logits, 1, dim=1)[1]
+        hazards = torch.sigmoid(logits)
+        S = torch.cumprod(1 - hazards, dim=1)
+        return hazards, S, Y_hat, None, None
     
     def captum(self, omics):
 

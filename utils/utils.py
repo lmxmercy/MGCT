@@ -124,15 +124,15 @@ def print_network(net):
     num_params = 0
     num_params_train = 0
     print(net)
-    
+
     for param in net.parameters():
         n = param.numel()
         num_params += n
         if param.requires_grad:
             num_params_train += n
-    
-    print('Total number of parameters: %d' % num_params)
-    print('Total number of trainable parameters: %d' % num_params_train)
+
+    print('Total number of parameters: %.3fM' % (num_params / 1e6))
+    print('Total number of trainable parameters: %.3fM' % (num_params_train / 1e6))
 
 
 def generate_split(cls_ids, val_num, test_num, samples, n_splits = 5,
@@ -374,16 +374,22 @@ def get_custom_exp_code(args):
     param_code = ''
 
     ### Model Type
-    if args.model_type == 'max_net':
+    if args.model_type == 'snn':
         param_code += 'SNN'
-    if args.model_type == 'amil':
-        param_code += 'AMIL'
+    elif args.model_type == 'mlp':
+        param_code += 'MLP'
+    elif args.model_type == 'smlp':
+        param_code += 'MaskedMLP'
     elif args.model_type == 'deepset':
-        param_code += 'DS'
+        param_code += 'DeepSets'
+    elif args.model_type == 'amil':
+        param_code += 'AttentionMIL'
     elif args.model_type == 'mi_fcn':
-        param_code += 'MIFCN'
+        param_code += 'DeepAttnMISL'
     elif args.model_type == 'mcat':
         param_code += 'MCAT'
+    elif args.model_type == 'porpoise':
+        param_code += 'PORPOISE'
     elif args.model_type == 'mgct':
         param_code += 'MGCT'
     elif args.model_type == 'new_mgct':
@@ -393,9 +399,23 @@ def get_custom_exp_code(args):
 
     ### MGCT params
     if 'mgct' in args.model_type:
-        param_code += '_l%s_l%s' % (args.stage1_num_layers, args.stage2_num_layers)
+        param_code += '_s%s_s%s' % (args.stage1_num_layers, args.stage2_num_layers)
         if 'new_mgct' in args.model_type:
-            param_code += '_h%s_h%s_l%s' % (args.num_attn_heads, args.num_trans_heads, args.num_trans_layer)
+            param_code += '_h%s' % args.num_attn_heads
+        if args.use_ffn:
+            param_code += '_ffn'
+        if args.use_trans:
+            param_code += '_trans'
+            if args.num_trans_heads != 0 or args.num_trans_layer != 0:
+                param_code += '_h%s_t%s' % (args.num_trans_heads, args.num_trans_layer)
+        # if args.use_gap:
+        #     param_code += '_gap'
+        if args.use_linear:
+            param_code += '_linear'
+        if args.omic_net is not None:
+            param_code += '_' + args.omic_net
+        if args.attention is not None:
+            param_code += '_' + args.attention
 
     ### Loss Function
     # param_code += '_%s' % args.bag_loss

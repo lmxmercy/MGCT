@@ -65,10 +65,45 @@ def main(args):
 		# 	print('Genomic Dimensions', args.omic_sizes)
 		# else:
 		# 	args.omic_input_dim = 0
-
-		args.omic_sizes = [94, 334, 521, 468, 1496, 479]
-		args.omic_input_dim = 20394 
-
+		
+		if args.split_dir.split('/')[3] == 'tcga_blca':
+			if args.apply_sigfeats:
+				args.omic_sizes = [94, 334, 521, 468, 1495, 479]
+				args.omic_input_dim = 3062 
+			else:
+				args.omic_sizes = [94, 334, 521, 468, 1496, 479]
+				args.omic_input_dim = 20394 
+		elif args.split_dir.split('/')[3] == 'tcga_luad':
+			if args.apply_sigfeats:
+				args.omic_sizes = [89, 334, 534, 471, 1509, 482]
+				args.omic_input_dim = 3096
+			else:
+				args.omic_sizes = [89, 334, 534, 471, 1510, 482]
+				args.omic_input_dim = 21145
+		elif args.split_dir.split('/')[3] == 'tcga_brca':
+			if args.apply_sigfeats:
+				args.omic_sizes = [91, 353, 553, 480, 1565, 480]
+				args.omic_input_dim = 3189 
+			else:
+				args.omic_sizes = [91, 353, 553, 480, 1566, 480]
+				args.omic_input_dim = 20970 
+		elif args.split_dir.split('/')[3] == 'tcga_ucec':
+			if args.apply_sigfeats:
+				args.omic_sizes = [3, 24, 21, 22, 64, 15]
+				args.omic_input_dim = 123 
+			else:
+				args.omic_sizes = [3, 24, 21, 22, 65, 15]
+				args.omic_input_dim = 9071 
+		elif args.split_dir.split('/')[3] == 'tcga_gbmlgg':
+			if args.apply_sigfeats:
+				args.omic_sizes = [91, 353, 553, 480, 1566, 480]
+				args.omic_input_dim = 20970 
+			else:
+				args.omic_sizes = [91, 353, 553, 480, 1566, 480]
+				args.omic_input_dim = 20970 
+		else:
+			raise NotImplementedError
+		
 		### Run Train-Val on Survival Task.
 		if args.task_type == 'survival':
 			val_latest, cindex_latest = train(datasets, i, args)
@@ -105,11 +140,12 @@ parser.add_argument('--log_data',        action='store_true', default=True, help
 parser.add_argument('--overwrite',     	 action='store_true', default=False, help='Whether or not to overwrite experiments (if already ran)')
 
 ### Model Parameters.
-parser.add_argument('--model_type',      type=str, choices=['snn', 'deepset', 'amil', 'mi_fcn', 'mcat', 'mgct', 'new_mgct'], default='new_mgct', help='Type of model (Default: mcat)')
+parser.add_argument('--model_type',      type=str, choices=['snn', 'mlp', 'smlp', 'deepset', 'amil', 'mi_fcn', 'mcat', 'porpoise', 'mgct', 'mm_mlp', 'new_mgct'], 
+		    							 default='new_mgct', help='Type of model (Default: mcat)')
 parser.add_argument('--mode',            type=str, choices=['omic', 'path', 'pathomic', 'cluster', 'coattn'], default='coattn', help='Specifies which modalities to use / collate function in dataloader.')
-parser.add_argument('--fusion',          type=str, choices=['None', 'concat', 'bilinear'], default='concat', help='Type of fusion. (Default: concat).')
+parser.add_argument('--fusion',          type=str, choices=['None', 'concat', 'bilinear', 'lrbilinear', 'aff', 'iaff', 'add', 'hadamard', 'attn'], default='concat', help='Type of fusion. (Default: concat).')
 parser.add_argument('--apply_sig',		 action='store_true', default=True, help='Use genomic features as signature embeddings.')
-parser.add_argument('--apply_sigfeats',  action='store_true', default=False, help='Use genomic features as tabular features.')
+parser.add_argument('--apply_sigfeats',  action='store_true', default=True, help='Use genomic features as tabular features.')
 parser.add_argument('--drop_out',        action='store_true', default=True, help='Enable dropout (p=0.25)')
 parser.add_argument('--model_size_wsi',  type=str, default='small', help='Network size of AMIL model')
 parser.add_argument('--model_size_omic', type=str, default='small', help='Network size of SNN model')
@@ -131,12 +167,18 @@ parser.add_argument('--weighted_sample', action='store_true', default=True, help
 parser.add_argument('--early_stopping',  action='store_true', default=False, help='Enable early stopping')
 parser.add_argument('--testing',  		 action='store_true', default=False, help='')
 
-###
+### Special Params for MGCT
+parser.add_argument('--use_ffn', action='store_true', default=True, help='the extra feedforward after translayer.')
+parser.add_argument('--use_trans', action='store_true', default=False, help='the translayer after gap.')
+parser.add_argument('--use_linear', action='store_true', default=True, help='the extra feedforward after translayer.')
+# parser.add_argument('--use_gap', action='store_true', default=True, help='the gated-attention pooling.')
+parser.add_argument('--omic_net',    type=str, choices=['snn', 'reg', 'mlp'], default='snn', help='the feature extractor for genomics.')
+parser.add_argument('--attention',    type=str, choices=['mha', 'sra', 'lsra', 'hyrda_sra', 'hydra_lsra'], default='mha', help='the attention module for MGCA.')
 parser.add_argument('--stage1_num_layers', type=int, default=1, help='the number of MGCT layer in stage 1.')
-parser.add_argument('--stage2_num_layers', type=int, default=1, help='the number of MGCT layer in stage 2.')
+parser.add_argument('--stage2_num_layers', type=int, default=2, help='the number of MGCT layer in stage 2.')
 parser.add_argument('--num_attn_heads', type=int, default=1, help='the number of heads of Multi-Head Attention in MGCT (MGCA)')
-parser.add_argument('--num_trans_heads', type=int, default=8, help='the number of heads of Multi-Head Attention in transformer layer in MGCT Layer')
-parser.add_argument('--num_trans_layer', type=int, default=1, help='the number of layers of transformer layers in MGCT Layer')
+parser.add_argument('--num_trans_heads', type=int, default=0, help='the number of heads of Multi-Head Attention in transformer layer in MGCT Layer')
+parser.add_argument('--num_trans_layer', type=int, default=0, help='the number of layers of transformer layers in MGCT Layer')
 
 args = parser.parse_args()
 device=torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -191,7 +233,7 @@ if 'survival' in args.task:
 	if study == 'tcga_kirc' or study == 'tcga_kirp':
 		combined_study = 'tcga_kidney'
 	elif study == 'tcga_luad' or study == 'tcga_lusc':
-		combined_study = 'tcga_lung'
+		combined_study = 'tcga_luad'
 	else:
 		combined_study = study
 	# study_dir = '%s_20x_features' % combined_study

@@ -4,9 +4,9 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
-from utils.util import format_command_line_args
+from utils.utils import format_command_line_args
 from utils.file_utils import join_and_make
-from utils.util import save_fig
+from utils.utils import save_fig
 
 
 parser = argparse.\

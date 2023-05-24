@@ -10,8 +10,8 @@ from sksurv.metrics import concordance_index_censored
 import torch
 
 from datasets.dataset_generic import save_splits
-from models.model_genomic import SNN
-from models.mm_baselines import MIL_Sum_FC_surv, MIL_Attention_FC_surv, MIL_Cluster_FC_surv, MCAT_Surv
+from models.model_genomic import SNN, MLPOmics, MaskedOmics
+from models.mm_baselines import MIL_Sum_FC_surv, MIL_Attention_FC_surv, MIL_Cluster_FC_surv, MCAT_Surv, PorpoiseMMF
 # from models.model_coattn import MCAT_Surv
 from models.MGCT import MGCT
 from models.new_MGCT import MGCT_Surv
@@ -148,8 +148,14 @@ def train(datasets: tuple, cur: int, args: Namespace):
     args.fusion = None if args.fusion == 'None' else args.fusion
 
     if args.model_type =='snn':
-        model_dict = {'omic_input_dim': args.omic_input_dim, 'model_size_omic': args.model_size_omic, 'n_classes': args.n_classes}
+        model_dict = {'input_dim': args.omic_input_dim, 'model_size_omic': args.model_size_omic, 'n_classes': args.n_classes}
         model = SNN(**model_dict)
+    elif args.model_type == 'mlp':
+        model_dict = {'input_dim': args.omic_input_dim, 'n_classes': args.n_classes}
+        model = MLPOmics(**model_dict)
+    elif args.model_type == 'smlp':
+        model_dict = {'input_dim': args.omic_input_dim, 'num_classes': args.n_classes}
+        model = MaskedOmics(**model_dict)
     elif args.model_type == 'deepset':
         model_dict = {'omic_input_dim': args.omic_input_dim, 'fusion': args.fusion, 'n_classes': args.n_classes}
         model = MIL_Sum_FC_surv(**model_dict)
@@ -166,14 +172,20 @@ def train(datasets: tuple, cur: int, args: Namespace):
         model_dict = {'fusion': args.fusion, 'omic_sizes': args.omic_sizes, 'n_classes': args.n_classes, 
                       'stage1_num_layers': args.stage1_num_layers, 'stage2_num_layers': args.stage2_num_layers}
         model = MGCT(**model_dict)
+    elif args.model_type == 'porpoise':
+        model_dict = {'fusion': args.fusion, 'omic_input_dim': args.omic_input_dim, 'n_classes': args.n_classes, }
+        model = PorpoiseMMF(**model_dict)
+    # elif args.model_type == 'mm_mlp':
     elif args.model_type == 'new_mgct':
-        model_dict = {'fusion': args.fusion, 'omic_sizes': args.omic_sizes, 'n_classes': args.n_classes, 
+        model_dict = {'fusion': args.fusion, 'omic_sizes': args.omic_sizes, 'n_classes': args.n_classes, 'use_ffn': args.use_ffn, 
+                      'use_trans': args.use_trans, 'use_linear': args.use_linear, 'omic_net': args.omic_net, 'attention': args.attention,
+                      'model_size_wsi': args.model_size_wsi, 'model_size_omic': args.model_size_omic,
                       'stage1_num_layers': args.stage1_num_layers, 'stage2_num_layers': args.stage2_num_layers,
                       'num_attn_heads': args.num_attn_heads, 'num_trans_heads': args.num_trans_heads, 'num_trans_layer': args.num_trans_layer}
         model = MGCT_Surv(**model_dict)
     else:
         raise NotImplementedError
-    
+
     if hasattr(model, "relocate"):
         model.relocate()
     else:
@@ -206,13 +218,21 @@ def train(datasets: tuple, cur: int, args: Namespace):
             if args.mode == 'coattn':
                 train_loop_survival_coattn(epoch, model, train_loader, optimizer, args.n_classes, writer, loss_fn, reg_fn, args.lambda_reg, args.gc)
                 stop = validate_survival_coattn(cur, epoch, model, val_loader, args.n_classes, early_stopping, monitor_cindex, writer, loss_fn, reg_fn, args.lambda_reg, args.results_dir)
+            elif args.mode == 'cluster':
+                train_loop_survival_cluster(epoch, model, train_loader, optimizer, args.n_classes, writer, loss_fn, reg_fn, args.lambda_reg, args.gc)
+                stop = validate_survival_cluster(cur, epoch, model, val_loader, args.n_classes, early_stopping, monitor_cindex, writer, loss_fn, reg_fn, args.lambda_reg, args.results_dir)
             else:
                 train_loop_survival(epoch, model, train_loader, optimizer, args.n_classes, writer, loss_fn, reg_fn, args.lambda_reg, args.gc)
                 stop = validate_survival(cur, epoch, model, val_loader, args.n_classes, early_stopping, monitor_cindex, writer, loss_fn, reg_fn, args.lambda_reg, args.results_dir)
 
     torch.save(model.state_dict(), os.path.join(args.results_dir, "s_{}_checkpoint.pt".format(cur)))
     model.load_state_dict(torch.load(os.path.join(args.results_dir, "s_{}_checkpoint.pt".format(cur))))
-    results_val_dict, val_cindex = summary_survival_coattn(model, val_loader, args.n_classes)
+    if args.mode == 'coattn':
+        results_val_dict, val_cindex = summary_survival_coattn(model, val_loader, args.n_classes)
+    elif args.mode == 'cluster':
+        results_val_dict, val_cindex = summary_survival_cluster(model, val_loader, args.n_classes)
+    else:
+        results_val_dict, val_cindex = summary_survival(model, val_loader, args.n_classes)
     print('Val c-Index: {:.4f}'.format(val_cindex))
     writer.close()
     return results_val_dict, val_cindex

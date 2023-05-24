@@ -20,15 +20,15 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # print(BASE_DIR)
 sys.path.append(BASE_DIR)
 
-from utils.util import *
+from utils.utils import *
 from utils.file_utils import save_hdf5
 from utils.eval_utils import initiate_model as initiate_model
-from models.resnet import resnet50_baseline
-from models.baselines import CLAM_MB, CLAM_SB
-from models.model import MGCT
+from models.ResNet import resnet50_baseline
+from models.model_mils import CLAM_MB, CLAM_SB
+from models.new_MGCT import MGCT_Surv
 from wsi_core.wsi_utils import sample_rois
 from wsi_core.batch_process_utils import initialize_df
-from utils.util import get_split_loader, get_omic_loader
+from utils.utils import get_split_loader, get_omic_loader
 from utils.heatmap_utils import initialize_wsi, drawHeatmap, compute_from_patches
 
 
