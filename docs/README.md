@@ -1,7 +1,7 @@
 # MGCT
 The PyTorch implementation for the paper:
 
-MGCT: Mutual-Guided Cross-Modality Transformer for Survival Outcome Prediction using Integrative Histipathology-Genomic Features. (Accepted by BIBM 2023)
+MGCT: Mutual-Guided Cross-Modality Transformer for Survival Outcome Prediction using Integrative Histipathology-Genomic Features. (Accepted by IEEE BIBM 2023) [arXiv](https://arxiv.org/abs/2311.11659)
 
 ## Pre-requisites
 * Linux (Tested on Ubuntu 18.04) 
